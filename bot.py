@@ -6,6 +6,8 @@ import aiohttp
 from dotenv import load_dotenv
 import logging
 import re
+from flask import Flask         # <-- เพิ่มบรรทัดนี้
+from threading import Thread    # <-- เพิ่มบรรทัดนี้
 
 # ตั้งค่า Logging
 logging.basicConfig(level=logging.INFO)
@@ -93,6 +95,33 @@ async def update_status_channel(member, months_to_add):
     except Exception as e:
         logger.error(f"❌ เกิดข้อผิดพลาดในการอัพเดท Status Channel: {e}")
         return False
+
+
+# --- ตั้งค่า Intents ---
+intents = discord.Intents.default()
+# ... (โค้ดบอทของคุณ) ...
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+
+# --- 🔽 เพิ่มส่วนนี้เข้าไปทั้งหมด 🔽 ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "I'm alive!"
+
+def run():
+  app.run(host='0.0.0.0',port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+# --- 🔼 จบส่วนที่เพิ่ม 🔼 ---
+
+
+# --- ฟังก์ชันอัพเดท Status Channel ---
+async def update_status_channel(member, months_to_add):
+# ... (โค้ดเดิมของคุณ) ...
 
 
 @bot.event
@@ -506,4 +535,5 @@ async def monthly_reset_error(ctx, error):
 
 if __name__ == "__main__":
     logger.info("🚀 กำลังรันบอท...")
+    keep_alive() # <-- เพิ่มบรรทัดนี้
     bot.run(TOKEN)
