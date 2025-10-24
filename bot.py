@@ -180,34 +180,6 @@ async def verify_error(ctx, error):
         await ctx.send(f"❌ เกิดข้อผิดพลาด: {error}")
 
 
-# Error Handler สำหรับคำสั่ง verify
-@verify.error
-async def verify_error(ctx, error):
-    if isinstance(error, commands.MemberNotFound):
-        await ctx.send(
-            "❌ **ไม่พบสมาชิกที่ระบุ**\n\n"
-            "**วิธีใช้งาน:**\n"
-            "`!verify @username [จำนวนเดือน]`\n\n"
-            "**ตัวอย่าง:**\n"
-            "• `!verify @Alice 1` - เติมให้ Alice 1 เดือน\n"
-            "• `!verify @Bob 3` - เติมให้ Bob 3 เดือน\n\n"
-            "**หมายเหตุ:** ต้อง @ (mention) ชื่อจริงๆ ไม่ใช่พิมพ์ @username"
-        )
-    elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(
-            "❌ **ขาดข้อมูลที่จำเป็น**\n\n"
-            "**วิธีใช้งาน:**\n"
-            "`!verify @username [จำนวนเดือน]`\n\n"
-            "**ตัวอย่าง:**\n"
-            "`!verify @Alice 1`"
-        )
-    elif isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ (ต้องเป็น Administrator)")
-    else:
-        logger.error(f"Unhandled error in verify command: {error}")
-        await ctx.send(f"❌ เกิดข้อผิดพลาด: {error}")
-
-
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def monthly_reset(ctx):
