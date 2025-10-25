@@ -6,6 +6,8 @@ import aiohttp
 from dotenv import load_dotenv
 import logging
 import re
+from flask import Flask
+from threading import Thread
 
 # ตั้งค่า Logging
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +41,26 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# --- Flask Web Server (สำหรับ Render Web Service) ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is running!", 200
+
+@app.route('/health')
+def health():
+    return {"status": "healthy", "bot": str(bot.user)}, 200
+
+def run_flask():
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run_flask, daemon=True)
+    t.start()
+    logger.info(f"Flask server started on port {os.environ.get('PORT', 10000)}")
 
 
 # --- ฟังก์ชันอัพเดท Status Channel ---
@@ -367,4 +389,10 @@ async def on_message(message):
 
 if __name__ == "__main__":
     logger.info("🚀 กำลังรันบอท...")
+    
+    # เช็คว่าอยู่บน Render Web Service หรือไม่
+    if os.environ.get('RENDER'):
+        logger.info("🌐 ตรวจพบ Render - เปิด Flask server")
+        keep_alive()
+    
     bot.run(TOKEN)
