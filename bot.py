@@ -6,8 +6,6 @@ import aiohttp
 from dotenv import load_dotenv
 import logging
 import re
-from flask import Flask         # <-- เพิ่มบรรทัดนี้
-from threading import Thread    # <-- เพิ่มบรรทัดนี้
 
 # ตั้งค่า Logging
 logging.basicConfig(level=logging.INFO)
@@ -97,31 +95,14 @@ async def update_status_channel(member, months_to_add):
         return False
 
 
-# --- ตั้งค่า Intents ---
-intents = discord.Intents.default()
-# ... (โค้ดบอทของคุณ) ...
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-
-# --- 🔽 เพิ่มส่วนนี้เข้าไปทั้งหมด 🔽 ---
-app = Flask('')
-
-@app.route('/')
-def home():
-    return "I'm alive!"
-
-def run():
-  app.run(host='0.0.0.0',port=8080)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-# --- 🔼 จบส่วนที่เพิ่ม 🔼 ---
-
-
-# --- ฟังก์ชันอัพเดท Status Channel ---
-async def update_status_channel(member, months_to_add):
-# ... (โค้ดเดิมของคุณ) ...
+# Error Handler สำหรับคำสั่ง monthly_reset
+@monthly_reset.error
+async def monthly_reset_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ (ต้องเป็น Administrator)")
+    else:
+        logger.error(f"Unhandled error in monthly_reset command: {error}")
+        await ctx.send(f"❌ เกิดข้อผิดพลาด: {error}")
 
 
 @bot.event
@@ -137,19 +118,45 @@ async def on_ready():
 @commands.has_permissions(administrator=True)
 async def verify(ctx, member: discord.Member, months: int = 1):
     """
-    (Admin) อัปเดตชื่อเล่นของสมาชิกเพื่อยืนยันการจ่ายเงิน
+    (Admin) เพิ่ม ✅ ให้กับสมาชิกใน Status Channel
     """
     try:
-        new_name = f"✅ {member.display_name} (จ่าย {months} เดือน)"
-        if len(new_name) > 32:
-            new_name = new_name[:29] + "..."
-        await member.edit(nick=new_name)
-        await ctx.send(f"อัปเดตชื่อ {member.mention} เป็น '{new_name}' แล้ว ✅")
-    except discord.Forbidden:
-        await ctx.send(f"❌ บอทไม่มีสิทธิ์ (Permission) พอที่จะเปลี่ยนชื่อ {member.mention}")
+        success = await update_status_channel(member, months)
+        if success:
+            await ctx.send(f"✅ เพิ่ม {months} เดือนให้ {member.mention} สำเร็จ!")
+        else:
+            await ctx.send(f"❌ เกิดข้อผิดพลาดในการเพิ่มเดือนให้ {member.mention}")
     except Exception as e:
         logger.error(f"Error in verify command: {e}")
-        await ctx.send(f"❌ เกิดข้อผิดพลาดในการเปลี่ยนชื่อ: {e}")
+        await ctx.send(f"❌ เกิดข้อผิดพลาด: {e}")
+
+
+# Error Handler สำหรับคำสั่ง verify
+@verify.error
+async def verify_error(ctx, error):
+    if isinstance(error, commands.MemberNotFound):
+        await ctx.send(
+            "❌ **ไม่พบสมาชิกที่ระบุ**\n\n"
+            "**วิธีใช้งาน:**\n"
+            "`!verify @username [จำนวนเดือน]`\n\n"
+            "**ตัวอย่าง:**\n"
+            "• `!verify @Alice 1` - เติมให้ Alice 1 เดือน\n"
+            "• `!verify @Bob 3` - เติมให้ Bob 3 เดือน\n\n"
+            "**หมายเหตุ:** ต้อง @ (mention) ชื่อจริงๆ ไม่ใช่พิมพ์ @username"
+        )
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(
+            "❌ **ขาดข้อมูลที่จำเป็น**\n\n"
+            "**วิธีใช้งาน:**\n"
+            "`!verify @username [จำนวนเดือน]`\n\n"
+            "**ตัวอย่าง:**\n"
+            "`!verify @Alice 1`"
+        )
+    elif isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ (ต้องเป็น Administrator)")
+    else:
+        logger.error(f"Unhandled error in verify command: {error}")
+        await ctx.send(f"❌ เกิดข้อผิดพลาด: {error}")
 
 
 # Error Handler สำหรับคำสั่ง verify
@@ -195,7 +202,10 @@ async def monthly_reset(ctx):
         
         # เพิ่ม reaction เพื่อยืนยัน
         confirm_msg = await ctx.send(
-            "⚠️ **คำเตือน: คุณกำลังจะลด ✅ ของทุกคนใน Status Channel ลง 1 เดือน**"
+            "⚠️ **คำเตือน: คุณกำลังจะลด ✅ ของทุกคนใน Status Channel ลง 1 เดือน**\n\n"
+            "กด ✅ เพื่อยืนยัน\n"
+            "กด ❌ เพื่อยกเลิก\n"
+            "(มีเวลา 30 วินาที)"
         )
         await confirm_msg.add_reaction("✅")
         await confirm_msg.add_reaction("❌")
@@ -213,6 +223,9 @@ async def monthly_reset(ctx):
             if str(reaction.emoji) == "❌":
                 await ctx.send("❌ ยกเลิกการรีเซ็ตแล้ว")
                 return
+            
+            # เริ่มประมวลผล
+            processing_msg = await ctx.send("🔄 กำลังประมวลผล...")
             
             # เก็บข้อมูลสมาชิกทั้งหมด
             members_data = []
@@ -267,6 +280,15 @@ async def monthly_reset(ctx):
             
             # แสดงผลลัพธ์
             total_members = len(members_data)
+            result_msg = (
+                f"✅ **รีเซ็ตรายเดือนเสร็จสิ้น!**\n\n"
+                f"📊 สรุปผลการดำเนินการ:\n"
+                f"• จำนวนสมาชิกที่เหลืออยู่: **{total_members} คน**\n"
+                f"• ลด ✅ ลง 1 เดือนสำหรับทุกคน\n"
+                f"• สมาชิกที่หมดอายุถูกลบออกแล้ว\n\n"
+                f"✓ ดำเนินการโดย: {ctx.author.mention}"
+            )
+            await processing_msg.edit(content=result_msg)
             logger.info(f"Monthly reset completed by {ctx.author}: {total_members} members remaining")
         
         except asyncio.TimeoutError:
@@ -495,17 +517,6 @@ async def on_message(message):
                 )
 
 
-# Error Handler สำหรับคำสั่ง monthly_reset
-@monthly_reset.error
-async def monthly_reset_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ (ต้องเป็น Administrator)")
-    else:
-        logger.error(f"Unhandled error in monthly_reset command: {error}")
-        await ctx.send(f"❌ เกิดข้อผิดพลาด: {error}")
-        
-
 if __name__ == "__main__":
     logger.info("🚀 กำลังรันบอท...")
-    keep_alive() # <-- เพิ่มบรรทัดนี้
     bot.run(TOKEN)
