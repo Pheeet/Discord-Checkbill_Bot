@@ -6,6 +6,8 @@ import aiohttp
 from dotenv import load_dotenv
 import logging
 import re
+from flask import Flask
+from threading import Thread
 
 # ตั้งค่า Logging
 logging.basicConfig(level=logging.INFO)
@@ -26,7 +28,7 @@ if not TOKEN:
     exit()
 
 # --- 2. ตั้งค่า SlipOK API ---
-SLIP_API_KEY = os.getenv("SLIP_API_KEY") 
+SLIP_API_KEY = os.getenv("SLIP_API_KEY")
 SLIP_API_ID = os.getenv("SLIP_API_ID", "55097")
 SLIP_API_URL = f"https://api.slipok.com/api/line/apikey/{SLIP_API_ID}"
 
@@ -40,6 +42,20 @@ intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# --- Flask Keep-Alive Server ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "I'm alive!"
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
 
 # --- ฟังก์ชันอัพเดท Status Channel ---
 async def update_status_channel(member, months_to_add):
@@ -52,7 +68,7 @@ async def update_status_channel(member, months_to_add):
         if not status_channel:
             logger.error(f"❌ ไม่พบ Status Channel ID: {STATUS_CHANNEL_ID}")
             return False
-        
+
         # ค้นหาข้อความเดิมของ member นี้
         found_message = None
         async for msg in status_channel.history(limit=100):
@@ -61,24 +77,24 @@ async def update_status_channel(member, months_to_add):
                 if msg.content.startswith(f"👤 ผู้ส่ง: {member.mention}"):
                     found_message = msg
                     break
-        
+
         checkmarks_to_add = "✅ " * months_to_add
-        
+
         if found_message:
             # แก้ไขข้อความเดิม - เพิ่ม ✅
             old_content = found_message.content
-            
+
             # ดึงข้อมูลเดิมออกมา
             lines = old_content.split('\n')
             first_line = lines[0]
-            
+
             # เพิ่ม checkmarks ใหม่
             new_content = first_line + checkmarks_to_add
-            
+
             # ถ้ามีข้อมูลผู้ให้ เก็บไว้
             if len(lines) > 1:
                 new_content += '\n' + '\n'.join(lines[1:])
-            
+
             await found_message.edit(content=new_content)
             logger.info(f"✅ อัพเดทข้อความเดิมของ {member} สำเร็จ")
         else:
@@ -87,22 +103,12 @@ async def update_status_channel(member, months_to_add):
                 f"👤 ผู้ส่ง: {member.mention} : {checkmarks_to_add}"
             )
             logger.info(f"✅ สร้างข้อความใหม่สำหรับ {member} สำเร็จ")
-        
+
         return True
-        
+
     except Exception as e:
         logger.error(f"❌ เกิดข้อผิดพลาดในการอัพเดท Status Channel: {e}")
         return False
-
-
-# Error Handler สำหรับคำสั่ง monthly_reset
-@monthly_reset.error
-async def monthly_reset_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ (ต้องเป็น Administrator)")
-    else:
-        logger.error(f"Unhandled error in monthly_reset command: {error}")
-        await ctx.send(f"❌ เกิดข้อผิดพลาด: {error}")
 
 
 @bot.event
@@ -111,7 +117,7 @@ async def on_ready():
     logger.info(f"👀 กำลังตรวจสอบห้อง ID: {SLIP_CHANNEL_ID}")
     logger.info(f"📊 Status Channel ID: {STATUS_CHANNEL_ID}")
     logger.info(f"🚀 ใช้ SlipOK API: {SLIP_API_URL}")
-    logger.info(f"🔑 API Key: {SLIP_API_KEY}")
+    logger.info(f"🔑 API Key: {'*' * 8} (hidden for security)")
 
 
 @bot.command()
@@ -131,7 +137,6 @@ async def verify(ctx, member: discord.Member, months: int = 1):
         await ctx.send(f"❌ เกิดข้อผิดพลาด: {e}")
 
 
-# Error Handler สำหรับคำสั่ง verify
 @verify.error
 async def verify_error(ctx, error):
     if isinstance(error, commands.MemberNotFound):
@@ -156,35 +161,6 @@ async def verify_error(ctx, error):
         await ctx.send("❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ (ต้องเป็น Administrator)")
     else:
         logger.error(f"Unhandled error in verify command: {error}")
-        await ctx.send(f"❌ เกิดข้อผิดพลาด: {error}")
-
-
-# Error Handler สำหรับคำสั่ง verify
-@verify.error
-async def verify_error(ctx, error):
-    if isinstance(error, commands.MemberNotFound):
-        await ctx.send(
-            "❌ **ไม่พบสมาชิกที่ระบุ**\n\n"
-            "**วิธีใช้งาน:**\n"
-            "`!verify @username [จำนวนเดือน]`\n\n"
-            "**ตัวอย่าง:**\n"
-            "• `!verify @Alice 1` - เติมให้ Alice 1 เดือน\n"
-            "• `!verify @Bob 3` - เติมให้ Bob 3 เดือน\n\n"
-            "**หมายเหตุ:** ต้อง @ (mention) ชื่อจริงๆ ไม่ใช่พิมพ์ @username"
-        )
-    elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(
-            "❌ **ขาดข้อมูลที่จำเป็น**\n\n"
-            "**วิธีใช้งาน:**\n"
-            "`!verify @username [จำนวนเดือน]`\n\n"
-            "**ตัวอย่าง:**\n"
-            "`!verify @Alice 1`"
-        )
-    elif isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ (ต้องเป็น Administrator)")
-    else:
-        logger.error(f"Unhandled error in verify command: {error}")
-        await ctx.send(f"❌ เกิดข้อผิดพลาด: {error}")
 
 
 @bot.command()
@@ -192,14 +168,14 @@ async def verify_error(ctx, error):
 async def monthly_reset(ctx):
     """
     (Admin) ลด ✅ ของทุกคนใน Status Channel ลง 1 เดือน
-    ใช้คำสั่งนี้เมื่อผ่านไป 1 เดือนแล้ว
+    พิมพ์ข้อความใหม่ทั้งหมดโดยอิงจากข้อความเดิม
     """
     try:
         status_channel = bot.get_channel(STATUS_CHANNEL_ID)
         if not status_channel:
             await ctx.send(f"❌ ไม่พบ Status Channel ID: {STATUS_CHANNEL_ID}")
             return
-        
+
         # เพิ่ม reaction เพื่อยืนยัน
         confirm_msg = await ctx.send(
             "⚠️ **คำเตือน: คุณกำลังจะลด ✅ ของทุกคนใน Status Channel ลง 1 เดือน**\n\n"
@@ -209,75 +185,77 @@ async def monthly_reset(ctx):
         )
         await confirm_msg.add_reaction("✅")
         await confirm_msg.add_reaction("❌")
-        
+
         def check(reaction, user):
             return (
                 user == ctx.author and
                 str(reaction.emoji) in ["✅", "❌"] and
                 reaction.message.id == confirm_msg.id
             )
-        
+
         try:
             reaction, user = await bot.wait_for('reaction_add', timeout=30.0, check=check)
-            
+
             if str(reaction.emoji) == "❌":
                 await ctx.send("❌ ยกเลิกการรีเซ็ตแล้ว")
                 return
-            
+
             # เริ่มประมวลผล
             processing_msg = await ctx.send("🔄 กำลังประมวลผล...")
-            
+
             # เก็บข้อมูลสมาชิกทั้งหมด
             members_data = []
-            
+
             # ดึงข้อความทั้งหมดจาก Status Channel
             async for message in status_channel.history(limit=200):
                 if message.author == bot.user and message.content.startswith("👤 ผู้ส่ง:"):
                     try:
-                        # ดึง mention ออกมา
+                        # ดึงข้อมูลจากข้อความเดิม
                         lines = message.content.split('\n')
                         first_line = lines[0]
-                        
-                        # หา mention และนับ ✅
+
+                        # นับจำนวน ✅
                         checkmark_count = message.content.count("✅")
-                        
-                        # ดึง member mention (รูปแบบ: 👤 ผู้ส่ง: @user : ✅ ✅)
+
+                        # ดึง member mention
                         if '<@' in first_line:
-                            # ดึง member ID
                             member_id_match = re.search(r'<@!?(\d+)>', first_line)
                             if member_id_match:
                                 member_id = int(member_id_match.group(1))
                                 member = ctx.guild.get_member(member_id)
-                                
-                                if member and checkmark_count > 1:
-                                    # เหลือมากกว่า 1 เดือน - ลดลง 1
+
+                                if member:
+                                    # ลด ✅ ลง 1 เดือน
                                     new_checkmarks = checkmark_count - 1
-                                    members_data.append({
-                                        'member': member,
-                                        'checkmarks': new_checkmarks
-                                    })
-                        
+
+                                    # ถ้ายังเหลือ ให้เก็บไว้
+                                    if new_checkmarks > 0:
+                                        members_data.append({
+                                            'member': member,
+                                            'checkmarks': new_checkmarks
+                                        })
+
                         # ลบข้อความเดิม
                         await message.delete()
-                        await asyncio.sleep(0.3)
-                        
+                        await asyncio.sleep(0.2)
+
                     except Exception as e:
                         logger.error(f"Error processing message: {e}")
-            
-            # สร้างข้อความใหม่ทั้งหมด
+
+            # พิมพ์ข้อความใหม่ทั้งหมด
             if members_data:
                 # เรียงตามจำนวน checkmarks จากมากไปน้อย
                 members_data.sort(key=lambda x: x['checkmarks'], reverse=True)
-                
+
                 for data in members_data:
                     member = data['member']
                     checkmarks = "✅ " * data['checkmarks']
-                    
+
                     await status_channel.send(
                         f"👤 ผู้ส่ง: {member.mention} : {checkmarks}"
                     )
-                    await asyncio.sleep(0.3)  # หน่วงเวลาเพื่อไม่ให้ rate limit
-            
+                    await asyncio.sleep(0.2)
+
             # แสดงผลลัพธ์
             total_members = len(members_data)
             result_msg = (
@@ -290,13 +268,21 @@ async def monthly_reset(ctx):
             )
             await processing_msg.edit(content=result_msg)
             logger.info(f"Monthly reset completed by {ctx.author}: {total_members} members remaining")
-        
+
         except asyncio.TimeoutError:
             await ctx.send("⏰ หมดเวลา - ยกเลิกการรีเซ็ตแล้ว")
-    
+
     except Exception as e:
         logger.error(f"Error in monthly_reset command: {e}")
         await ctx.send(f"❌ เกิดข้อผิดพลาด: {e}")
+
+
+@monthly_reset.error
+async def monthly_reset_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ (ต้องเป็น Administrator)")
+    else:
+        logger.error(f"Unhandled error in monthly_reset command: {error}")
 
 
 @bot.event
@@ -304,40 +290,40 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # ประมวลผลคำสั่ง !verify ก่อน
+    # ประมวลผลคำสั่ง
     await bot.process_commands(message)
 
-    # ตรวจสอบว่าข้อความอยู่ในห้องที่กำหนด, มีไฟล์แนบ, และไม่ใช่บอท
+    # ตรวจสอบว่าข้อความอยู่ในห้องที่กำหนด มีไฟล์แนบ และไม่ใช่บอท
     if message.channel.id == SLIP_CHANNEL_ID and message.attachments:
-        
+
         for attachment in message.attachments:
             if attachment.content_type in ['image/png', 'image/jpeg', 'image/jpg']:
-                
+
                 logger.info(f"Processing slip from {message.author}: {attachment.filename}")
-                
+
                 try:
-                    # --- ดาวน์โหลดรูปภาพจาก Discord ---
+                    # ดาวน์โหลดรูปภาพจาก Discord
                     async with aiohttp.ClientSession() as session:
                         async with session.get(attachment.url) as img_response:
                             if img_response.status != 200:
                                 await message.channel.send(f"❌ ไม่สามารถดาวน์โหลดรูปภาพได้")
                                 continue
-                            
+
                             image_data = await img_response.read()
-                    
+
                     # เตรียม form data สำหรับ SlipOK API
                     form = aiohttp.FormData()
-                    form.add_field('files', 
+                    form.add_field('files',
                                    image_data,
                                    filename=attachment.filename,
                                    content_type=attachment.content_type)
                     form.add_field('log', 'true')
-                    
+
                     # ส่ง Request พร้อม API Key
                     headers = {
                         'x-authorization': SLIP_API_KEY
                     }
-                    
+
                     async with aiohttp.ClientSession() as session:
                         async with session.post(
                             SLIP_API_URL,
@@ -345,11 +331,11 @@ async def on_message(message):
                             headers=headers,
                             timeout=aiohttp.ClientTimeout(total=30)
                         ) as response:
-                            
+
                             response_text = await response.text()
                             logger.info(f"SlipOK API Response Status: {response.status}")
                             logger.info(f"SlipOK API Response Body: {response_text}")
-                            
+
                             try:
                                 result = await response.json()
                             except Exception as json_error:
@@ -359,34 +345,34 @@ async def on_message(message):
                                     f"Response: {response_text[:200]}"
                                 )
                                 continue
-                            
-                            # --- ตรวจสอบผลลัพธ์ ---
+
+                            # ตรวจสอบผลลัพธ์
                             if response.status == 200:
                                 success = result.get('success', False)
-                                
+
                                 if success:
                                     # Slip ถูกต้อง
                                     data = result.get('data', {})
-                                    
+
                                     receiver_name = data.get('receiver', {}).get('displayName', 'ไม่ทราบชื่อ')
                                     receiver_account = data.get('receiver', {}).get('account', {}).get('value', 'ไม่ทราบบัญชี')
-                                    
+
                                     sender_name = data.get('sender', {}).get('displayName', 'ไม่ทราบชื่อ')
                                     sender_account = data.get('sender', {}).get('account', {}).get('value', 'ไม่ทราบบัญชี')
-                                    
+
                                     amount = data.get('amount', 0)
                                     ref = data.get('transRef', 'ไม่มีเลข Ref')
                                     date_time = data.get('transDate', '') + ' ' + data.get('transTime', '')
-                                    
+
                                     # คำนวณจำนวนเดือน (60 บาท = 1 เดือน)
                                     months = int(amount // 60)
                                     if months < 1:
                                         months = 1
-                                    
+
                                     checkmarks = "✅ " * months
-                                    
+
                                     # แสดงข้อมูลสลิป
-                                    confirmation_msg = await message.channel.send(
+                                    await message.channel.send(
                                         f"✅ **ตรวจพบสลิปถูกต้อง**\n"
                                         f"👤 ผู้ส่ง: {message.author.mention}\n"
                                         f"📄 ไฟล์: `{attachment.filename}`\n\n"
@@ -404,13 +390,13 @@ async def on_message(message):
                                         f"หรือพิมพ์ `ตัวเอง` เพื่อเติมให้ตัวเอง\n"
                                         f"(มีเวลา 60 วินาที)"
                                     )
-                                    
+
                                     def msg_check(m):
                                         return m.author == message.author and m.channel == message.channel
-                                    
+
                                     try:
                                         user_msg = await bot.wait_for('message', timeout=60.0, check=msg_check)
-                                        
+
                                         # ตรวจสอบว่าเลือก "ตัวเอง"
                                         if user_msg.content.strip().lower() in ['ตัวเอง', 'ตนเอง', 'me']:
                                             # เติมให้ตัวเอง
@@ -419,11 +405,11 @@ async def on_message(message):
                                                 await message.channel.send(
                                                     f"✅ เติมให้ {message.author.mention} สำเร็จ! ({months} เดือน)"
                                                 )
-                                        
+
                                         elif len(user_msg.mentions) > 0:
                                             # มี mention คน
-                                            selected_members = user_msg.mentions[:months]  # จำกัดตามจำนวนเดือน
-                                            
+                                            selected_members = user_msg.mentions[:months]
+
                                             if months == 1:
                                                 # 1 เดือน - เติมให้คนเดียว
                                                 target = selected_members[0]
@@ -445,13 +431,13 @@ async def on_message(message):
                                                             f"🎁 เติมให้โดย: {message.author.mention}"
                                                         )
                                                 else:
-                                                    # เลือกหลายคน - แบ่งเท่าๆ กัน (1 เดือนต่อคน)
+                                                    # เลือกหลายคน - แบ่งเท่าๆ กัน
                                                     success_list = []
                                                     for target in selected_members:
                                                         success = await update_status_channel(target, 1)
                                                         if success:
                                                             success_list.append(target.mention)
-                                                    
+
                                                     if success_list:
                                                         await message.channel.send(
                                                             f"✅ เติมให้ {', '.join(success_list)} สำเร็จ! (อย่างละ 1 เดือน)\n"
@@ -465,7 +451,7 @@ async def on_message(message):
                                                 await message.channel.send(
                                                     f"⚠️ ไม่พบการ mention ใคร - เติมให้ {message.author.mention} (ตัวเอง) แทน ({months} เดือน)"
                                                 )
-                                    
+
                                     except asyncio.TimeoutError:
                                         # หมดเวลา - เติมให้ตัวเอง
                                         success = await update_status_channel(message.author, months)
@@ -473,7 +459,7 @@ async def on_message(message):
                                             await message.channel.send(
                                                 f"⏰ หมดเวลา! เติมให้ {message.author.mention} (ตัวเอง) แทน ({months} เดือน)"
                                             )
-                                
+
                                 else:
                                     # Slip ไม่ถูกต้อง
                                     error_message = result.get('message', 'ไม่สามารถตรวจสอบสลิปได้')
@@ -483,14 +469,14 @@ async def on_message(message):
                                         f"📄 ไฟล์: `{attachment.filename}`\n"
                                         f"❌ เหตุผล: {error_message}"
                                     )
-                            
+
                             elif response.status == 401 or response.status == 403:
                                 await message.channel.send(
                                     f"❌ **API Key ไม่ถูกต้อง** (HTTP {response.status})\n"
                                     f"กรุณาตรวจสอบ `SLIP_API_KEY` ในไฟล์ .env"
                                 )
                                 logger.error(f"Invalid API Key ({response.status})")
-                            
+
                             else:
                                 error_msg = result.get("message", "Unknown error")
                                 await message.channel.send(
@@ -501,15 +487,15 @@ async def on_message(message):
                 except asyncio.TimeoutError:
                     logger.error("API Timeout")
                     await message.channel.send(f"❌ API ตรวจสอบสลิปใช้เวลานานเกินไป (Timeout)")
-                    
+
                 except aiohttp.ClientError as e:
                     logger.error(f"HTTP Client Error: {e}")
                     await message.channel.send(f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ API: {e}")
-                    
+
                 except Exception as e:
                     logger.error(f"Unexpected error: {e}", exc_info=True)
                     await message.channel.send(f"❌ เกิดข้อผิดพลาดร้ายแรง: {e}")
-                
+
             else:
                 await message.channel.send(
                     f"⚠️ ไฟล์ `{attachment.filename}` ของ {message.author.mention} "
@@ -519,4 +505,5 @@ async def on_message(message):
 
 if __name__ == "__main__":
     logger.info("🚀 กำลังรันบอท...")
+    keep_alive()
     bot.run(TOKEN)
